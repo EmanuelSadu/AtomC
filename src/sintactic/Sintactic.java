@@ -114,9 +114,7 @@ alternativa face ca acea alternativa sa devina optionala: „α | ε” = „α?
 			return false;
 		}
 		
-		if(null != symbolsTable.findSymbol(currentAtom.text)) {
-			
-		}
+		symbolsTable.addSymbol(currentAtom().text);
 		
 		nextAtom();
 		
@@ -209,12 +207,7 @@ alternativa face ca acea alternativa sa devina optionala: „α | ε” = „α?
 				return false;
 			}
 			
-			if (null != symbolsTable.findSymbol(currentAtom().text)) {
-				AtomAttribute s = symbolsTable.findSymbol(currentAtom().text);
-				if(s.cls ==Clas.CLS_STRUCT) {
-					type.determineTypeBase(currentAtomType(),s);
-				}
-			}
+			type.determineTypeBase(symbolsTable,currentAtomType(),currentAtom().text);
 			
 			nextAtom();
 			return true;
