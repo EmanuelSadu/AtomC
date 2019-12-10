@@ -9,6 +9,7 @@ import lexical.Atom;
 import lexical.Atom.Iduri;
 import lexical.Lexical;
 import tabelaS.SymbolTable;
+import tabelaS.SymbolTable.AtomAttribute;
 import tabelaS.SymbolTable.EnumType;
 import tabelaS.SymbolTable.Type;
 
@@ -173,7 +174,7 @@ public class Sintactic {
 				}
 				tokenName = currentAtom().text;
 				nextAtom();
-
+				type = type.clone();
 				if (!consumeArrayDecl(type))
 					type.nrElements = -1;
 				symbolsTable.addVar(tokenName, type);
@@ -302,7 +303,7 @@ public class Sintactic {
 			gotoNextDelimitator();
 			return false;
 		}
-		symbolsTable.deleteSymbolsAfter();
+		symbolsTable.deleteSymbolsAfter(symbolsTable.crtFunc);
 		symbolsTable.crtFunc = null;
 		return true;
 	}
@@ -542,6 +543,8 @@ public class Sintactic {
 	}
 
 	private boolean consumeStmCompound() {
+
+		AtomAttribute last = symbolsTable.getLast();
 		if (currentAtomType() != Iduri.LACC)
 			return false;
 		symbolsTable.crtDepth++;
@@ -564,7 +567,7 @@ public class Sintactic {
 			return false;
 		}
 		symbolsTable.crtDepth--;
-		symbolsTable.deleteSymbolsAfter();
+		symbolsTable.deleteSymbolsAfter(last);
 		nextAtom();
 		return true;
 	}

@@ -1,6 +1,7 @@
 package tabelaS;
 
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import lexical.Atom.Iduri;
@@ -10,6 +11,7 @@ public class SymbolTable {
 	public AtomAttribute crtStruct;
 	public AtomAttribute crtFunc;
 	public int crtDepth = 0;
+	private LinkedHashMap<String, AtomAttribute> symbols;
 
 	public enum EnumType {
 		TB_INT, TB_DOUBLE, TB_CHAR, TB_STRUCT, TB_VOID
@@ -23,10 +25,8 @@ public class SymbolTable {
 		MEM_GLOBAL, MEM_ARG, MEM_LOCAL
 	};
 
-	private HashMap<String, AtomAttribute> symbols;
-
 	public SymbolTable() {
-		symbols = new HashMap<String, SymbolTable.AtomAttribute>();
+		symbols = new LinkedHashMap<String, SymbolTable.AtomAttribute>();
 	}
 
 	public AtomAttribute findSymbol(String token) {
@@ -74,7 +74,7 @@ public class SymbolTable {
 		symbol.mem = Mem.MEM_ARG;
 		symbol.type = type;
 		symbols.put(tokenName, symbol);
-
+		type = type.clone();
 		symbol = new AtomAttribute(tokenName, Clas.CLS_VAR);
 		symbol.mem = Mem.MEM_ARG;
 		symbol.type = type;
@@ -104,9 +104,24 @@ public class SymbolTable {
 		s.type = type;
 	}
 
-	public void deleteSymbolsAfter() {
-		// TODO Auto-generated method stub
+	public void deleteSymbolsAfter(AtomAttribute last) {
+		LinkedHashMap<String, AtomAttribute> newSymbols = new LinkedHashMap<String, AtomAttribute>();
+		for (Map.Entry<String, AtomAttribute> entry : symbols.entrySet()) {
 
+			newSymbols.put(entry.getKey(), entry.getValue());
+			if (entry.getKey().equals(last.name))
+				break;
+		}
+		symbols = newSymbols;
+	}
+
+	public AtomAttribute getLast() {
+
+		AtomAttribute last = null;
+		for (Map.Entry<String, AtomAttribute> entry : symbols.entrySet()) {
+			last = entry.getValue();
+		}
+		return last;
 	}
 
 	public static class AtomAttribute {
@@ -147,6 +162,15 @@ public class SymbolTable {
 	}
 
 	public static class Type {
+		@Override
+		public Type clone() {
+
+			Type type = new Type();
+			type.nrElements = this.nrElements;
+			type.s = this.s;
+			type.typeBase = this.typeBase;
+			return type;
+		}
 
 		public EnumType typeBase;
 		public AtomAttribute s;
@@ -163,19 +187,19 @@ public class SymbolTable {
 		public void determineTypeBase(Iduri currentAtomType) {
 			switch (currentAtomType) {
 			case INT:
-				typeBase = EnumType.TB_INT;
+				this.typeBase = EnumType.TB_INT;
 				break;
 			case DOUBLE:
-				typeBase = EnumType.TB_DOUBLE;
+				this.typeBase = EnumType.TB_DOUBLE;
 				break;
 			case CHAR:
-				typeBase = EnumType.TB_CHAR;
+				this.typeBase = EnumType.TB_CHAR;
 				break;
 			case STRUCT:
-				typeBase = EnumType.TB_STRUCT;
+				this.typeBase = EnumType.TB_STRUCT;
 				break;
 			case VOID:
-				typeBase = EnumType.TB_VOID;
+				this.typeBase = EnumType.TB_VOID;
 				break;
 			default:
 				break;
