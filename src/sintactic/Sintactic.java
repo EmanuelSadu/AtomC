@@ -10,7 +10,9 @@ import lexical.Atom.Iduri;
 import lexical.Lexical;
 import tabelaS.SymbolTable;
 import tabelaS.SymbolTable.AtomAttribute;
+import tabelaS.SymbolTable.Clas;
 import tabelaS.SymbolTable.EnumType;
+import tabelaS.SymbolTable.RetVal;
 import tabelaS.SymbolTable.Type;
 
 public class Sintactic {
@@ -48,11 +50,10 @@ public class Sintactic {
 	Stack<Atom> STACKAtom = new Stack<Atom>();
 	Stack<StringBuilder> STACKERRORS = new Stack<StringBuilder>();
 	StringBuilder errorReporter = new StringBuilder();
-	SymbolTable symbolsTable;
 
-	public Sintactic(SymbolTable table, List<Atom> atoms) {
+	public Sintactic(List<Atom> atoms) {
 		this.atoms = atoms;
-		symbolsTable = table;
+
 	}
 
 	public void compile() {
@@ -119,7 +120,7 @@ public class Sintactic {
 			return false;
 		}
 
-		symbolsTable.crtStruct = symbolsTable.addStructSymbol(tokenName);
+		SymbolTable.getInstance().crtStruct = SymbolTable.getInstance().addStructSymbol(tokenName);
 
 		nextAtom();
 
@@ -141,7 +142,7 @@ public class Sintactic {
 		}
 		nextAtom();
 
-		symbolsTable.crtStruct = null;
+		SymbolTable.getInstance().crtStruct = null;
 		return true;
 	}
 
@@ -161,7 +162,7 @@ public class Sintactic {
 
 		if (!consumeArrayDecl(type))
 			type.nrElements = -1;
-		symbolsTable.addVar(tokenName, type);
+		SymbolTable.getInstance().addVar(tokenName, type);
 		while (true) {
 
 			if (currentAtomType() == Iduri.COMMA) {
@@ -177,7 +178,7 @@ public class Sintactic {
 				type = type.clone();
 				if (!consumeArrayDecl(type))
 					type.nrElements = -1;
-				symbolsTable.addVar(tokenName, type);
+				SymbolTable.getInstance().addVar(tokenName, type);
 				continue;
 			}
 			break;
@@ -207,7 +208,7 @@ public class Sintactic {
 				return false;
 			}
 
-			type.determineTypeBase(symbolsTable, currentAtomType(), currentAtom().text);
+			type.determineTypeBase(currentAtomType(), currentAtom().text);
 
 			nextAtom();
 			return true;
@@ -272,7 +273,7 @@ public class Sintactic {
 			gotoNextDelimitator();
 			return false;
 		}
-		symbolsTable.crtFunc = symbolsTable.addFuncSymbol(tokenName, type);
+		SymbolTable.getInstance().crtFunc = SymbolTable.getInstance().addFuncSymbol(tokenName, type);
 		nextAtom();
 
 		if (consumeFuncArg()) {
@@ -295,7 +296,7 @@ public class Sintactic {
 			gotoNextDelimitator();
 			return false;
 		}
-		symbolsTable.crtDepth--;
+		SymbolTable.getInstance().crtDepth--;
 		nextAtom();
 
 		if (!consumeStmCompound()) {
@@ -303,8 +304,8 @@ public class Sintactic {
 			gotoNextDelimitator();
 			return false;
 		}
-		symbolsTable.deleteSymbolsAfter(symbolsTable.crtFunc);
-		symbolsTable.crtFunc = null;
+		SymbolTable.getInstance().deleteSymbolsAfter(SymbolTable.getInstance().crtFunc);
+		SymbolTable.getInstance().crtFunc = null;
 		return true;
 	}
 
@@ -322,7 +323,7 @@ public class Sintactic {
 
 		if (!consumeArrayDecl(type))
 			type.nrElements = -1;
-		symbolsTable.addFcArg(tokenName, type);
+		SymbolTable.getInstance().addFcArg(tokenName, type);
 
 		return true;
 	}
@@ -544,10 +545,10 @@ public class Sintactic {
 
 	private boolean consumeStmCompound() {
 
-		AtomAttribute last = symbolsTable.getLast();
+		AtomAttribute last = SymbolTable.getInstance().getLast();
 		if (currentAtomType() != Iduri.LACC)
 			return false;
-		symbolsTable.crtDepth++;
+		SymbolTable.getInstance().crtDepth++;
 		nextAtom();
 		while (true) {
 			if (consumeDeclVar()) {
@@ -566,8 +567,8 @@ public class Sintactic {
 			gotoNextDelimitator();
 			return false;
 		}
-		symbolsTable.crtDepth--;
-		symbolsTable.deleteSymbolsAfter(last);
+		SymbolTable.getInstance().crtDepth--;
+		SymbolTable.getInstance().deleteSymbolsAfter(last);
 		nextAtom();
 		return true;
 	}
@@ -884,8 +885,8 @@ public class Sintactic {
 	}
 
 	private boolean consumeExprPostfix() {
-
-		if (!consumeExprPrimary())
+		RetVal retVal = new RetVal();
+		if (!consumeExprPrimary(retVal))
 			return false;
 
 		if (!consumeExprPostfixResolved()) {
@@ -960,31 +961,35 @@ public class Sintactic {
 		return true;
 	}
 
-	private boolean consumeExprPrimary() {
+	private boolean consumeExprPrimary(RetVal rv) {
 
 		saveAtom();
-		if (consumeExprPrimaryFctCall()) {
+		if (consumeExprPrimaryFctCall(rv)) {
 			popAtomFromStack();
 			return true;
 		}
 		restoreAtom();
 
 		if (currentAtomType() == Iduri.CT_INT) {
+			rv.makePrimitiv(EnumType.TB_INT, currentAtom().intreg, -1);
 			nextAtom();
 			return true;
 		} else if (currentAtomType() == Iduri.CT_REAL) {
+			rv.makePrimitiv(EnumType.TB_DOUBLE, currentAtom().real, -1);
 			nextAtom();
 			return true;
 		} else if (currentAtomType() == Iduri.CT_CHAR) {
+			rv.makePrimitiv(EnumType.TB_CHAR, currentAtom().text, -1);
 			nextAtom();
 			return true;
 		} else if (currentAtomType() == Iduri.CT_SRING) {
+			rv.makePrimitiv(EnumType.TB_CHAR, currentAtom().text, 0);
 			nextAtom();
 			return true;
 		}
 
 		saveAtom();
-		if (consumeExprPrimaryParntesis()) {
+		if (consumeExprPrimaryParntesis(rv)) {
 			popAtomFromStack();
 			return true;
 		}
@@ -994,19 +999,38 @@ public class Sintactic {
 
 	}
 
-	public boolean consumeExprPrimaryFctCall() {
+	public boolean consumeExprPrimaryFctCall(RetVal rv) {
 		if (currentAtomType() != Iduri.ID)
 			return false;
+		String tkName = currentAtom().text;
+		AtomAttribute s = rv.fromSymbolName(tkName);
 		nextAtom();
 
 		if (currentAtomType() == Iduri.LPAR) {
+			int i = 0;
+			AtomAttribute crtDefArg = s.getArgByIndex(i);
+			s.isFct();
 			nextAtom();
-
+			RetVal arg = new RetVal();
+			// arg !!
 			if (consumeExpr()) {
+				{
+					if (s.getArgByIndex(i) == null)// do compare method
+						throw new RuntimeException("too many arguments in call" + tkName);
+					Type.cast(crtDefArg.type, arg.type);
+					crtDefArg = s.getArgByIndex(i++);
+				}
 				while (true) {
 					if (currentAtomType() == Iduri.COMMA) {
 						nextAtom();
+						// arg !!
 						if (!consumeExpr()) {
+							{
+								if (s.getArgByIndex(i) == null)// do compare method
+									throw new RuntimeException("too many arguments in call" + tkName);
+								Type.cast(crtDefArg.type, arg.type);
+								crtDefArg = s.getArgByIndex(i++);
+							}
 							errorReporter.append(
 									String.format(prefix, this.currentLine(), "Missing Fct arg after COMMA )\n"));
 							gotoNextDelimitator();
@@ -1023,16 +1047,26 @@ public class Sintactic {
 				gotoNextDelimitator();
 				return false;
 			}
+			{
+				if (i < s.nrOfArgs())// do compare method
+					throw new RuntimeException("too few arguments in call" + tkName);
+				rv.type = s.type;
+				rv.isCtVal = rv.isLVal = false;
+			}
 			nextAtom();
+		} else {
+			if (s.cls == Clas.CLS_FUNC || s.cls == Clas.CLS_EXTFUNC)
+				throw new RuntimeException("missing call for function " + tkName);
 		}
 		return true;
 	}
 
-	public boolean consumeExprPrimaryParntesis() {
+	public boolean consumeExprPrimaryParntesis(RetVal returnValue) {
 
 		if (currentAtomType() != Iduri.LPAR)
 			return false;
 		nextAtom();
+		// rv
 		if (!consumeExpr()) {
 			errorReporter.append(String.format(prefix, this.currentLine(), "No expression in parantesis )\n"));
 			gotoNextDelimitator();
@@ -1053,17 +1087,16 @@ public class Sintactic {
 
 		Sintactic sintactic;
 		Lexical alex;
-		SymbolTable table;
 		for (int i = 0; i <= 9; i++) {
 
 			alex = new Lexical("CCodeTest/" + i + ".c");
 			try {
 				alex.compile();
 				alex.hasErrors();
-				table = new SymbolTable();
-				sintactic = new Sintactic(table, alex.getAtoms());
+				SymbolTable.getInstance().initExtFct("methods.h");
+				sintactic = new Sintactic(alex.getAtoms());
 				sintactic.compile();
-				table.printSymbolTable();
+				SymbolTable.getInstance().printSymbolTable();
 
 			} catch (FileNotFoundException e) {
 				// TODO Auto-generated catch block

@@ -1,6 +1,5 @@
 package tabelaS;
 
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -8,6 +7,7 @@ import lexical.Atom.Iduri;
 
 public class SymbolTable {
 
+	private static SymbolTable instance;
 	public AtomAttribute crtStruct;
 	public AtomAttribute crtFunc;
 	public int crtDepth = 0;
@@ -25,8 +25,25 @@ public class SymbolTable {
 		MEM_GLOBAL, MEM_ARG, MEM_LOCAL
 	};
 
-	public SymbolTable() {
+	public void tearDown() {
+		instance = null;
+	}
+
+	public static SymbolTable getInstance() {
+		if (instance == null) {
+			instance = new SymbolTable();
+		}
+		return instance;
+	}
+
+	private SymbolTable() {
 		symbols = new LinkedHashMap<String, SymbolTable.AtomAttribute>();
+	}
+
+	public void initExtFct(String extFctHeaderFile) {
+		AtomAttribute putI = addExtFunc("put_i", Type.createType(EnumType.TB_INT, -1));
+		putI.addArg("i", Type.createType(EnumType.TB_CHAR, 0));
+
 	}
 
 	public AtomAttribute findSymbol(String token) {
@@ -68,12 +85,21 @@ public class SymbolTable {
 		return symbol;
 	}
 
+	public AtomAttribute addExtFunc(String token, Type type) {
+		AtomAttribute symbol = addSymbol(token, Clas.CLS_EXTFUNC);
+		symbol.args = new Args();
+		symbols.put(token, symbol);
+		symbol.type = type;
+		return symbol;
+	}
+
 	public void addFcArg(String tokenName, Type type) {
 
 		AtomAttribute symbol = new AtomAttribute(tokenName, Clas.CLS_VAR);
 		symbol.mem = Mem.MEM_ARG;
 		symbol.type = type;
 		symbols.put(tokenName, symbol);
+
 		type = type.clone();
 		symbol = new AtomAttribute(tokenName, Clas.CLS_VAR);
 		symbol.mem = Mem.MEM_ARG;
@@ -159,18 +185,56 @@ public class SymbolTable {
 			args.args.put(symbol.name, symbol);
 		}
 
+		public void addArg(String tokenName, Type createType) {
+			AtomAttribute a = new AtomAttribute(tokenName, SymbolTable.Clas.CLS_VAR);
+			a.depth = SymbolTable.getInstance().crtDepth;
+			a.type = createType;
+			args.args.put(tokenName, a);
+		}
+
+		public AtomAttribute getFirstArg() {
+
+			for (Map.Entry<String, AtomAttribute> entry : args.args.entrySet()) {
+				return entry.getValue();
+			}
+			return null;
+		}
+
+		public AtomAttribute getLastArg() {
+
+			AtomAttribute last = null;
+			for (Map.Entry<String, AtomAttribute> entry : args.args.entrySet()) {
+				last = entry.getValue();
+			}
+			return last;
+		}
+
+		public AtomAttribute getArgByIndex(int i) {
+
+			AtomAttribute last = null;
+			for (Map.Entry<String, AtomAttribute> entry : args.args.entrySet()) {
+				last = entry.getValue();
+				if (i == 0)
+					return last;
+				else
+					i--;
+			}
+			return null;
+		}
+
+		public void isFct() {
+			if (this.cls != Clas.CLS_FUNC && this.cls != Clas.CLS_EXTFUNC)
+				throw new RuntimeException("call of the non-function " + this.name);
+
+		}
+
+		public int nrOfArgs() {
+			return args.args.size();
+		}
+
 	}
 
 	public static class Type {
-		@Override
-		public Type clone() {
-
-			Type type = new Type();
-			type.nrElements = this.nrElements;
-			type.s = this.s;
-			type.typeBase = this.typeBase;
-			return type;
-		}
 
 		public EnumType typeBase;
 		public AtomAttribute s;
@@ -207,9 +271,9 @@ public class SymbolTable {
 
 		}
 
-		public void determineTypeBase(SymbolTable symbolsTable, Iduri currentAtomType, String token) {
+		public void determineTypeBase(Iduri currentAtomType, String token) {
 
-			AtomAttribute s = symbolsTable.findSymbol(token);
+			AtomAttribute s = SymbolTable.getInstance().findSymbol(token);
 			if (s == null)
 				throw new RuntimeException("Undefined Symbol " + token);
 
@@ -219,22 +283,124 @@ public class SymbolTable {
 			typeBase = EnumType.TB_STRUCT;
 			this.s = s;
 		}
+
+		public static void cast(Type dst, Type src) {
+			if (src.nrElements > -1) {
+				if (dst.nrElements > -1) {
+					if (src.typeBase != dst.typeBase)
+						throw new RuntimeException("an array cannot be converted to an array of another type");
+				} else {
+					throw new RuntimeException("a.n array cannot be converted to a non-array");
+				}
+			} else {
+				if (dst.nrElements > -1) {
+					throw new RuntimeException("a non-array cannot be converted to an array");
+				}
+			}
+			switch (src.typeBase) {
+			case TB_CHAR:
+			case TB_INT:
+			case TB_DOUBLE:
+
+				switch (dst.typeBase) {
+				case TB_CHAR:
+				case TB_INT:
+				case TB_DOUBLE:
+					return;
+				default:
+					break;
+				}
+			case TB_STRUCT:
+				if (dst.typeBase == EnumType.TB_STRUCT) {
+					if (src.s != dst.s)
+						throw new RuntimeException("a structure cannot be converted to another one");
+					return;
+				}
+			default:
+				break;
+			}
+			throw new RuntimeException("incompatible types");
+		}
+
+		@Override
+		public Type clone() {
+
+			Type type = new Type();
+			type.nrElements = this.nrElements;
+			type.s = this.s;
+			type.typeBase = this.typeBase;
+			return type;
+		}
+
+		public static Type createType(EnumType enumType, int nrElems) {
+			Type type = new Type(enumType);
+			type.nrElements = nrElems;
+			return type;
+		}
+
+		public static Type getArithType(Type s1, Type s2) {
+			return null;
+		}
 	}
 
 	private class Args {
-		private HashMap<String, AtomAttribute> args;
+		private LinkedHashMap<String, AtomAttribute> args;
 
 		public Args() {
-			args = new HashMap<String, SymbolTable.AtomAttribute>();
+			args = new LinkedHashMap<String, SymbolTable.AtomAttribute>();
 		}
 	}
 
 	private class Members {
 
-		private HashMap<String, AtomAttribute> members;
+		private LinkedHashMap<String, AtomAttribute> members;
 
 		public Members() {
-			members = new HashMap<String, SymbolTable.AtomAttribute>();
+			members = new LinkedHashMap<String, SymbolTable.AtomAttribute>();
+		}
+	}
+
+	public static class CtVal {
+		public Long i; // int, char
+		public Double d; // double
+		public String str;
+
+		public CtVal(Object val) {
+			if (val instanceof String)
+				str = (String) val;
+			else if (val instanceof Long)
+				i = (Long) val;
+			else if (val instanceof Integer) {
+				i = ((Integer) val).longValue();
+
+			} else
+				d = (Double) val;
+		}
+
+	}
+
+	public static class RetVal {
+		public Type type; // type of the result
+		public boolean isLVal; // if it is a LVal
+		public boolean isCtVal; // if it is a constant value
+		public CtVal ctVal; // the constat value
+
+		public void makePrimitiv(EnumType type, Object val, int nrElements) {
+			this.type = Type.createType(EnumType.TB_INT, nrElements);
+			this.ctVal = new CtVal(val);
+			this.isCtVal = true;
+			this.isLVal = false;
+		}
+
+		public AtomAttribute fromSymbolName(String tkName) {
+
+			AtomAttribute s = SymbolTable.getInstance().findSymbol(tkName);
+			if (s == null)
+				throw new RuntimeException("undefined symbol " + tkName);
+			this.type = s.type;
+			this.isCtVal = true;
+			this.isLVal = false;
+			return s;
 		}
 	}
 
@@ -242,7 +408,9 @@ public class SymbolTable {
 
 		for (Map.Entry<String, AtomAttribute> entry : symbols.entrySet()) {
 			AtomAttribute symbol = entry.getValue();
-			System.out.println(entry.getKey() + " = " + symbol.cls + " " + symbol.mem + " " + symbol.type.typeBase);
+			if (null != symbol.type)
+				System.out.println(symbol.type.typeBase);
+			System.out.println(entry.getKey() + " = " + symbol.cls + " " + symbol.mem + " ");
 		}
 
 	}
