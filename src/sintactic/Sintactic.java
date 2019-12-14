@@ -221,7 +221,14 @@ public class Sintactic {
 		if (currentAtomType() != Iduri.LBRACKET)
 			return false;
 		nextAtom();
-		if (consumeExpr()) {
+		RetVal rv = new RetVal();
+		if (consumeExpr(rv)) {
+			if (!rv.isCtVal)
+				throw new RuntimeException("the array size is not a constant");
+			if (rv.type.typeBase != EnumType.TB_INT)
+				throw new RuntimeException("the array size is not an integer");
+			type.nrElements = rv.ctVal.i.intValue();
+		} else {
 			type.nrElements = 0;
 		}
 
@@ -376,7 +383,8 @@ public class Sintactic {
 
 	private boolean consumeStmSemicolon() {
 
-		consumeExpr();
+		RetVal rv = new RetVal();
+		consumeExpr(rv);
 
 		if (currentAtomType() != Iduri.SEMICOLON) {
 			errorReporter.append(String.format(prefix, this.currentLine(), "? Missing ; Assuming it"));
@@ -394,8 +402,13 @@ public class Sintactic {
 
 		nextAtom();
 
-		consumeExpr();
-
+		RetVal rv = new RetVal();
+		consumeExpr(rv);
+		{
+			if (SymbolTable.getInstance().crtFunc.type.typeBase == EnumType.TB_VOID)
+				throw new RuntimeException("a void function cannot return a value");
+			Type.cast(SymbolTable.getInstance().crtFunc.type, rv.type);
+		}
 		if (currentAtomType() != Iduri.SEMICOLON) {
 			errorReporter.append(String.format(prefix, this.currentLine(), " return Missing ; Assuming it"));
 			gotoNextDelimitator();
@@ -431,7 +444,8 @@ public class Sintactic {
 		}
 		nextAtom();
 
-		consumeExpr();
+		RetVal rv1 = new RetVal();
+		consumeExpr(rv1);
 
 		if (currentAtomType() != Iduri.SEMICOLON) {
 			errorReporter.append(String.format(prefix, this.currentLine(), "Missing ; Assuming it"));
@@ -440,8 +454,13 @@ public class Sintactic {
 		}
 		nextAtom();
 
-		consumeExpr();
+		RetVal rv2 = new RetVal();
+		consumeExpr(rv2);
+		{
 
+			if (rv2.type.typeBase == EnumType.TB_STRUCT)
+				throw new RuntimeException("a structure cannot be logically tested");
+		}
 		if (currentAtomType() != Iduri.SEMICOLON) {
 			errorReporter.append(String.format(prefix, this.currentLine(), "Missing ; Assuming it"));
 			gotoNextDelimitator();
@@ -449,7 +468,8 @@ public class Sintactic {
 		}
 		nextAtom();
 
-		consumeExpr();
+		RetVal rv3 = new RetVal();
+		consumeExpr(rv3);
 
 		if (currentAtomType() != Iduri.RPAR) {
 			errorReporter.append(String.format(prefix, this.currentLine(), "Missing close )"));
@@ -477,12 +497,13 @@ public class Sintactic {
 			return false;
 		}
 		nextAtom();
-
-		if (!consumeExpr()) {
+		RetVal rv = new RetVal();
+		if (!consumeExpr(rv)) {
 			errorReporter.append(String.format(prefix, this.currentLine(), "stm Missing expr ("));
 			gotoNextDelimitator();
 			return false;
-		}
+		} else if (rv.type.typeBase == EnumType.TB_STRUCT)
+			throw new RuntimeException("a structure cannot be logically tested");
 
 		if (currentAtomType() != Iduri.RPAR) {
 			errorReporter.append(String.format(prefix, this.currentLine(), "Missing close )"));
@@ -511,11 +532,13 @@ public class Sintactic {
 		}
 		nextAtom();
 
-		if (!consumeExpr()) {
+		RetVal rv = new RetVal();
+		if (!consumeExpr(rv)) {
 			errorReporter.append(String.format(prefix, this.currentLine(), "stm Missing expr ("));
 			gotoNextDelimitator();
 			return false;
-		}
+		} else if (rv.type.typeBase == EnumType.TB_STRUCT)
+			throw new RuntimeException("a structure cannot be logically tested");
 
 		if (currentAtomType() != Iduri.RPAR) {
 			errorReporter.append(String.format(prefix, this.currentLine(), "Missing close stm )"));
@@ -573,21 +596,21 @@ public class Sintactic {
 		return true;
 	}
 
-	private boolean consumeExpr() {
-		if (consumeExprAssign()) {
+	private boolean consumeExpr(RetVal rv) {
+		if (consumeExprAssign(rv)) {
 			return true;
 		} else
 			return false;
 	}
 
-	private boolean consumeExprAssign() {
+	private boolean consumeExprAssign(RetVal rv) {
 		saveAtom();
-		if (consumeExprAssignS()) {
+		if (consumeExprAssignS(rv)) {
 			popAtomFromStack();
 			return true;
 		}
 		restoreSaveAtom();
-		if (consumeExprOr()) {
+		if (consumeExprOr(rv)) {
 			popAtomFromStack();
 			return true;
 		}
@@ -596,8 +619,8 @@ public class Sintactic {
 
 	}
 
-	private boolean consumeExprAssignS() {
-		if (!consumeExprUnary())
+	private boolean consumeExprAssignS(RetVal rv) {
+		if (!consumeExprUnary(rv))
 			return false;
 		if (currentAtomType() != Iduri.ASSIGN) {
 			errorReporter.append(String.format(prefix, this.currentLine(), "Missing = "));
@@ -605,18 +628,27 @@ public class Sintactic {
 			return false;
 		}
 		nextAtom();
-		if (!consumeExprAssign()) {
+		RetVal rve = new RetVal();
+		if (!consumeExprAssign(rve)) {
 			errorReporter.append(String.format(prefix, this.currentLine(), "Missing = right side operator "));
 			gotoNextDelimitator();
 			return false;
 		}
+		{
+			if (!rv.isLVal)
+				throw new RuntimeException("cannot assign to a non-lval");
+			if (rv.type.nrElements > -1 || rve.type.nrElements > -1)
+				throw new RuntimeException("the arrays cannot be assigned");
+			Type.cast(rv.type, rve.type);
+			rv.isCtVal = rv.isLVal = false;
+		}
 		return true;
 	}
 
-	private boolean consumeExprOr() {
-		if (!consumeExprAnd())
+	private boolean consumeExprOr(RetVal rv) {
+		if (!consumeExprAnd(rv))
 			return false;
-		if (!consumeExprOrResolved()) {
+		if (!consumeExprOrResolved(rv)) {
 			errorReporter.append(String.format(prefix, this.currentLine(), "Invalid OR Expr\n"));
 			gotoNextDelimitator();
 			return false;
@@ -624,16 +656,24 @@ public class Sintactic {
 		return true;
 	}
 
-	private boolean consumeExprOrResolved() {
+	private boolean consumeExprOrResolved(RetVal rv) {
 		boolean er = false;
 		if (currentAtomType() == Iduri.OR) {
 			saveAtom();
 			nextAtom();
-			if (!consumeExprAnd()) {
+			RetVal rve = new RetVal();
+			if (!consumeExprAnd(rve)) {
 				errorReporter.append(String.format(prefix, this.currentLine(), "Invalid Expr afrer OR op\n"));
 				gotoNextDelimitator();
 				er = true;
-			} else if (!consumeExprOrResolved()) {
+			}
+			{
+				if (rv.type.typeBase == EnumType.TB_STRUCT || rve.type.typeBase == EnumType.TB_STRUCT)
+					throw new RuntimeException("a structure cannot be logically tested");
+				rv.type = Type.createType(EnumType.TB_INT, -1);
+				rv.isCtVal = rv.isLVal = false;
+			}
+			if (!consumeExprOrResolved(rv)) {
 				errorReporter.append(String.format(prefix, this.currentLine(), "Invalid ExprOrResolved \n"));
 				gotoNextDelimitator();
 				er = true;
@@ -645,10 +685,10 @@ public class Sintactic {
 		return true;
 	}
 
-	private boolean consumeExprAnd() {
-		if (!consumeExprEq())
+	private boolean consumeExprAnd(RetVal rv) {
+		if (!consumeExprEq(rv))
 			return false;
-		if (!consumeExprAndResolved()) {
+		if (!consumeExprAndResolved(rv)) {
 			errorReporter.append(String.format(prefix, this.currentLine(), "Invalid And Expr\n"));
 			gotoNextDelimitator();
 			return false;
@@ -656,16 +696,24 @@ public class Sintactic {
 		return true;
 	}
 
-	private boolean consumeExprAndResolved() {
+	private boolean consumeExprAndResolved(RetVal rv) {
 		boolean er = false;
 		if (currentAtomType() == Iduri.AND) {
 			saveAtom();
 			nextAtom();
-			if (!consumeExprEq()) {
+			RetVal rve = new RetVal();
+			if (!consumeExprEq(rve)) {
 				errorReporter.append(String.format(prefix, this.currentLine(), "Invalid Expr afrer AND op\n"));
 				gotoNextDelimitator();
 				er = true;
-			} else if (!consumeExprAndResolved()) {
+			}
+			{
+				if (rv.type.typeBase == EnumType.TB_STRUCT || rve.type.typeBase == EnumType.TB_STRUCT)
+					throw new RuntimeException("a structure cannot be logically tested");
+				rv.type = Type.createType(EnumType.TB_INT, -1);
+				rv.isCtVal = rv.isLVal = false;
+			}
+			if (!consumeExprAndResolved(rv)) {
 				errorReporter.append(String.format(prefix, this.currentLine(), "Invalid ExprAndResolved \n"));
 				gotoNextDelimitator();
 				er = true;
@@ -677,10 +725,10 @@ public class Sintactic {
 		return true;
 	}
 
-	private boolean consumeExprEq() {
-		if (!consumeExpRel())
+	private boolean consumeExprEq(RetVal rv) {
+		if (!consumeExpRel(rv))
 			return false;
-		if (!consumeExprEqReolved()) {
+		if (!consumeExprEqReolved(rv)) {
 			errorReporter.append(String.format(prefix, this.currentLine(), "Invalid Eq Expr\n"));
 			gotoNextDelimitator();
 			return false;
@@ -688,16 +736,26 @@ public class Sintactic {
 		return true;
 	}
 
-	private boolean consumeExprEqReolved() {
+	private boolean consumeExprEqReolved(RetVal rv) {
 		boolean er = false;
 		if (currentAtomType() == Iduri.EQUAL || currentAtomType() == Iduri.NOTEQ) {
+			Iduri tkop = currentAtomType();
 			saveAtom();
 			nextAtom();
-			if (!consumeExpRel()) {
+			RetVal rve = new RetVal();
+			if (!consumeExpRel(rve)) {
 				errorReporter.append(String.format(prefix, this.currentLine(), "Invalid Expr afrer ==!= op\n"));
 				gotoNextDelimitator();
 				er = true;
-			} else if (!consumeExprEqReolved()) {
+			}
+			{
+				if (rv.type.typeBase == EnumType.TB_STRUCT || rve.type.typeBase == EnumType.TB_STRUCT)
+					throw new RuntimeException("a structure cannot be compared");
+				rv.type = Type.createType(EnumType.TB_INT, -1);
+				rv.isCtVal = rv.isLVal = false;
+
+			}
+			if (!consumeExprEqReolved(rv)) {
 				errorReporter.append(String.format(prefix, this.currentLine(), "Invalid ExpEqResolved \n"));
 				gotoNextDelimitator();
 				er = true;
@@ -705,14 +763,16 @@ public class Sintactic {
 			popAtomFromStack();
 		}
 		if (er)
+
 			restoreAtom();
 		return true;
+
 	}
 
-	private boolean consumeExpRel() {
-		if (!consumeExprAdd())
+	private boolean consumeExpRel(RetVal rv) {
+		if (!consumeExprAdd(rv))
 			return false;
-		if (!consumeExpRelResolved()) {
+		if (!consumeExpRelResolved(rv)) {
 			errorReporter.append(String.format(prefix, this.currentLine(), "Invalid REl Expr\n"));
 			gotoNextDelimitator();
 			return false;
@@ -720,17 +780,28 @@ public class Sintactic {
 		return true;
 	}
 
-	private boolean consumeExpRelResolved() {
+	private boolean consumeExpRelResolved(RetVal rv) {
 		boolean er = false;
 		if (currentAtomType() == Iduri.LESS || currentAtomType() == Iduri.GREATER || currentAtomType() == Iduri.LESSEQ
 				|| currentAtomType() == Iduri.GREATEREQ) {
+			Iduri tkop = currentAtomType();
 			saveAtom();
 			nextAtom();
-			if (!consumeExprAdd()) {
+			RetVal rve = new RetVal();
+			if (!consumeExprAdd(rve)) {
 				errorReporter.append(String.format(prefix, this.currentLine(), "Invalid Expr afrer ><== op\n"));
 				gotoNextDelimitator();
 				er = true;
-			} else if (!consumeExpRelResolved()) {
+			}
+			{
+				if (rv.type.nrElements > -1 || rve.type.nrElements > -1)
+					throw new RuntimeException("an array cannot be compared");
+				if (rv.type.typeBase == EnumType.TB_STRUCT || rve.type.typeBase == EnumType.TB_STRUCT)
+					throw new RuntimeException("a structure cannot be compared");
+				rv.type = Type.createType(EnumType.TB_INT, -1);
+				rv.isCtVal = rv.isLVal = false;
+			}
+			if (!consumeExpRelResolved(rv)) {
 				errorReporter.append(String.format(prefix, this.currentLine(), "Invalid ExprRelResolved \n"));
 				gotoNextDelimitator();
 				er = true;
@@ -743,10 +814,10 @@ public class Sintactic {
 		return true;
 	}
 
-	private boolean consumeExprAdd() {
-		if (!consumeExprMul())
+	private boolean consumeExprAdd(RetVal rv) {
+		if (!consumeExprMul(rv))
 			return false;
-		if (!consumeExprAddResolved()) {
+		if (!consumeExprAddResolved(rv)) {
 			errorReporter.append(String.format(prefix, this.currentLine(), "Invalid Add Expr\n"));
 			gotoNextDelimitator();
 			return false;
@@ -754,16 +825,27 @@ public class Sintactic {
 		return true;
 	}
 
-	private boolean consumeExprAddResolved() {
+	private boolean consumeExprAddResolved(RetVal rv) {
 		boolean er = false;
 		if (currentAtomType() == Iduri.ADD || currentAtomType() == Iduri.SUB) {
+			Iduri tkop = currentAtomType();
 			nextAtom();
 			saveAtom();
-			if (!consumeExprMul()) {
+			RetVal rve = new RetVal();
+			if (!consumeExprMul(rve)) {
 				errorReporter.append(String.format(prefix, this.currentLine(), "Invalid Expr afrer +- op\n"));
 				gotoNextDelimitator();
 				er = true;
-			} else if (!consumeExprAddResolved()) {
+			}
+			{
+				if (rv.type.nrElements > -1 || rve.type.nrElements > -1)
+					throw new RuntimeException("an array cannot be added or subtracted");
+				if (rv.type.typeBase == EnumType.TB_STRUCT || rve.type.typeBase == EnumType.TB_STRUCT)
+					throw new RuntimeException("a structure cannot be added or subtracted");
+				rv.type = Type.getArithType(rv.type, rve.type);
+				rv.isCtVal = rv.isLVal = false;
+			}
+			if (!consumeExprAddResolved(rv)) {
 				errorReporter.append(String.format(prefix, this.currentLine(), "Invalid ExprAddResolved \n"));
 				gotoNextDelimitator();
 				er = true;
@@ -771,15 +853,17 @@ public class Sintactic {
 			popAtomFromStack();
 		}
 		if (er)
+
 			restoreAtom();
 
 		return true;
+
 	}
 
-	private boolean consumeExprMul() {
-		if (!consumeExprCast())
+	private boolean consumeExprMul(RetVal rv) {
+		if (!consumeExprCast(rv))
 			return false;
-		if (!consumeExprMulResolved()) {
+		if (!consumeExprMulResolved(rv)) {
 			errorReporter.append(String.format(prefix, this.currentLine(), "Invalid Mul Expr\n"));
 			gotoNextDelimitator();
 			return false;
@@ -787,16 +871,27 @@ public class Sintactic {
 		return true;
 	}
 
-	private boolean consumeExprMulResolved() {
+	private boolean consumeExprMulResolved(RetVal rv) {
 		boolean er = false;
 		if (currentAtomType() == Iduri.MUL || currentAtomType() == Iduri.DIV) {
+			Iduri tkop = currentAtomType();
 			saveAtom();
 			nextAtom();
-			if (!consumeExprCast()) {
+			RetVal rve = new RetVal();
+			if (!consumeExprCast(rve)) {
 				errorReporter.append(String.format(prefix, this.currentLine(), "Invalid Expr afrer */ op\n"));
 				gotoNextDelimitator();
 				er = true;
-			} else if (!consumeExprMulResolved()) {
+			}
+			{
+				if (rv.type.nrElements > -1 || rve.type.nrElements > -1)
+					throw new RuntimeException("an array cannot be multiplied or divided");
+				if (rv.type.typeBase == EnumType.TB_STRUCT || rve.type.typeBase == EnumType.TB_STRUCT)
+					throw new RuntimeException("a structure cannot be multiplied or divided");
+				rv.type = Type.getArithType(rv.type, rve.type);
+				rv.isCtVal = rv.isLVal = false;
+			}
+			if (!consumeExprMulResolved(rv)) {
 				errorReporter.append(String.format(prefix, this.currentLine(), "Invalid ExprMulResolved \n"));
 				gotoNextDelimitator();
 				er = true;
@@ -809,15 +904,15 @@ public class Sintactic {
 		return true;
 	}
 
-	private boolean consumeExprCast() {
+	private boolean consumeExprCast(RetVal rv) {
 
 		saveAtom();
-		if (consumeExprCastS()) {
+		if (consumeExprCastS(rv)) {
 			popAtomFromStack();
 			return true;
 		}
 		restoreSaveAtom();
-		if (consumeExprUnary()) {
+		if (consumeExprUnary(rv)) {
 			popAtomFromStack();
 			return true;
 		}
@@ -825,7 +920,7 @@ public class Sintactic {
 		return false;
 	}
 
-	private boolean consumeExprCastS() {
+	private boolean consumeExprCastS(RetVal rv) {
 		if (currentAtomType() != Iduri.LPAR)
 			return false;
 
@@ -844,24 +939,29 @@ public class Sintactic {
 		}
 
 		nextAtom();
-		if (!consumeExprCast()) {
+		RetVal rve = new RetVal();
+		if (!consumeExprCast(rve)) {
 			errorReporter.append(String.format(prefix, this.currentLine(), "Wrong Expr to cast\n"));
 			gotoNextDelimitator();
 			return false;
 		}
+		{
+			Type.cast(type, rve.type);
+			rv.type = type;
+			rv.isCtVal = rv.isLVal = false;
+		}
 		return true;
 	}
 
-	private boolean consumeExprUnary() {
+	private boolean consumeExprUnary(RetVal rv) {
 		saveAtom();
-
-		if (consumeExprUnaryL()) {
+		if (consumeExprUnaryL(rv)) {
 			popAtomFromStack();
 			return true;
 		}
 
 		restoreSaveAtom();
-		if (consumeExprPostfix()) {
+		if (consumeExprPostfix(rv)) {
 			popAtomFromStack();
 			return true;
 		}
@@ -870,26 +970,40 @@ public class Sintactic {
 		return false;
 	}
 
-	private boolean consumeExprUnaryL() {
+	private boolean consumeExprUnaryL(RetVal rv) {
 		if (currentAtomType() == Iduri.SUB || currentAtomType() == Iduri.NOT) {
+			Iduri tkop = currentAtomType();
 			nextAtom();
 
-			if (!consumeExprUnary()) {
+			if (!consumeExprUnary(rv)) {
 				errorReporter.append(String.format(prefix, this.currentLine(), "UNary Invalid ExprPostfix\n"));
 				gotoNextDelimitator();
 				return false;
+			}
+			{
+				if (tkop == Iduri.SUB) {
+					if (rv.type.nrElements >= 0)
+						throw new RuntimeException("unary '-' cannot be applied to an array");
+					if (rv.type.typeBase == EnumType.TB_STRUCT)
+						throw new RuntimeException("unary '-' cannot be applied to a struct");
+				} else { // NOT
+					if (rv.type.typeBase == EnumType.TB_STRUCT)
+						throw new RuntimeException("'!' cannot be applied to a struct");
+					rv.type = Type.createType(EnumType.TB_INT, -1);
+				}
+				rv.isCtVal = rv.isLVal = false;
 			}
 			return true;
 		}
 		return false;
 	}
 
-	private boolean consumeExprPostfix() {
-		RetVal retVal = new RetVal();
-		if (!consumeExprPrimary(retVal))
+	private boolean consumeExprPostfix(RetVal rv) {
+
+		if (!consumeExprPrimary(rv))
 			return false;
 
-		if (!consumeExprPostfixResolved()) {
+		if (!consumeExprPostfixResolved(rv)) {
 			errorReporter.append(String.format(prefix, this.currentLine(), "Invalid ExprPrimary\n"));
 			gotoNextDelimitator();
 			return false;
@@ -898,16 +1012,16 @@ public class Sintactic {
 		return true;
 	}
 
-	private boolean consumeExprPostfixResolved() {
+	private boolean consumeExprPostfixResolved(RetVal rv) {
 
 		saveAtom();
-		if (consumeExprPostfixResolvedArray()) {
+		if (consumeExprPostfixResolvedArray(rv)) {
 			popAtomFromStack();
 			return true;
 		}
 
 		restoreSaveAtom();
-		if (consumeExprPostfixResolvedStructField()) {
+		if (consumeExprPostfixResolvedStructField(rv)) {
 			popAtomFromStack();
 			return true;
 		}
@@ -916,17 +1030,28 @@ public class Sintactic {
 
 	}
 
-	private boolean consumeExprPostfixResolvedArray() {
+	private boolean consumeExprPostfixResolvedArray(RetVal rv) {
 		if (currentAtomType() != Iduri.LBRACKET)
 			return false;
 		nextAtom();
-
-		if (!consumeExpr()) {
+		RetVal rve = new RetVal();
+		if (!consumeExpr(rve)) {
 			errorReporter.append(String.format(prefix, this.currentLine(), "Invalid array index ID\n"));
 			gotoNextDelimitator();
 			return false;
 		}
+		{
+			if (rv.type.nrElements < 0)
+				throw new RuntimeException("only an array can be indexed");
+			Type typeInt = Type.createType(EnumType.TB_INT, -1);
 
+			Type.cast(typeInt, rve.type);
+			rv.type = rv.type; // WTF ?
+			rv.type.nrElements = -1;
+			rv.isLVal = true;
+			rv.isCtVal = false;
+
+		}
 		if (currentAtomType() != Iduri.RBRACKET) {
 			errorReporter.append(String.format(prefix, this.currentLine(), "Missing close ]\n"));
 			gotoNextDelimitator();
@@ -934,7 +1059,7 @@ public class Sintactic {
 		}
 		nextAtom();
 
-		if (!consumeExprPostfixResolved()) {
+		if (!consumeExprPostfixResolved(rv)) {
 			errorReporter.append(String.format(prefix, this.currentLine(), "Invalid ExprPostfixResolved\n"));
 			gotoNextDelimitator();
 			return false;
@@ -942,7 +1067,7 @@ public class Sintactic {
 		return true;
 	}
 
-	private boolean consumeExprPostfixResolvedStructField() {
+	private boolean consumeExprPostfixResolvedStructField(RetVal rv) {
 		if (currentAtomType() != Iduri.DOT)
 			return false;
 		nextAtom();
@@ -951,9 +1076,21 @@ public class Sintactic {
 			gotoNextDelimitator();
 			return false;
 		}
+		String tokenName = currentAtom().text;
+		{
+			AtomAttribute sStruct = rv.type.s;
+			AtomAttribute sMember = sStruct.findMember(tokenName);
+			if (sMember == null)
+				throw new RuntimeException(
+						String.format("struct %s does not have a member %s", sStruct.name, tokenName));
+			rv.type = sMember.type;
+			rv.isLVal = true;
+			rv.isCtVal = false;
+		}
+
 		nextAtom();
 
-		if (!consumeExprPostfixResolved()) {
+		if (!consumeExprPostfixResolved(rv)) {
 			errorReporter.append(String.format(prefix, this.currentLine(), "Invalid ExprPostfixResolved\n"));
 			gotoNextDelimitator();
 			return false;
@@ -999,7 +1136,7 @@ public class Sintactic {
 
 	}
 
-	public boolean consumeExprPrimaryFctCall(RetVal rv) {
+	private boolean consumeExprPrimaryFctCall(RetVal rv) {
 		if (currentAtomType() != Iduri.ID)
 			return false;
 		String tkName = currentAtom().text;
@@ -1008,12 +1145,13 @@ public class Sintactic {
 
 		if (currentAtomType() == Iduri.LPAR) {
 			int i = 0;
+
 			AtomAttribute crtDefArg = s.getArgByIndex(i);
 			s.isFct();
+
 			nextAtom();
 			RetVal arg = new RetVal();
-			// arg !!
-			if (consumeExpr()) {
+			if (consumeExpr(arg)) {
 				{
 					if (s.getArgByIndex(i) == null)// do compare method
 						throw new RuntimeException("too many arguments in call" + tkName);
@@ -1023,8 +1161,8 @@ public class Sintactic {
 				while (true) {
 					if (currentAtomType() == Iduri.COMMA) {
 						nextAtom();
-						// arg !!
-						if (!consumeExpr()) {
+						arg = new RetVal();
+						if (!consumeExpr(arg)) {
 							{
 								if (s.getArgByIndex(i) == null)// do compare method
 									throw new RuntimeException("too many arguments in call" + tkName);
@@ -1061,13 +1199,13 @@ public class Sintactic {
 		return true;
 	}
 
-	public boolean consumeExprPrimaryParntesis(RetVal returnValue) {
+	private boolean consumeExprPrimaryParntesis(RetVal rv) {
 
 		if (currentAtomType() != Iduri.LPAR)
 			return false;
 		nextAtom();
-		// rv
-		if (!consumeExpr()) {
+
+		if (!consumeExpr(rv)) {
 			errorReporter.append(String.format(prefix, this.currentLine(), "No expression in parantesis )\n"));
 			gotoNextDelimitator();
 			return false;

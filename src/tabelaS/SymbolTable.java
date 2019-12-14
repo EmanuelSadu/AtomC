@@ -165,7 +165,7 @@ public class SymbolTable {
 			this.cls = clsStruct;
 		}
 
-		public Object findMember(String tokenName) {
+		public AtomAttribute findMember(String tokenName) {
 			return members.members.get(tokenName);
 		}
 
@@ -230,6 +230,11 @@ public class SymbolTable {
 
 		public int nrOfArgs() {
 			return args.args.size();
+		}
+
+		public AtomAttribute findSymbol(String tokenName) {
+			// TODO Auto-generated method stub
+			return null;
 		}
 
 	}
@@ -398,8 +403,8 @@ public class SymbolTable {
 			if (s == null)
 				throw new RuntimeException("undefined symbol " + tkName);
 			this.type = s.type;
-			this.isCtVal = true;
-			this.isLVal = false;
+			this.isCtVal = false;
+			this.isLVal = true;
 			return s;
 		}
 	}
