@@ -14,7 +14,7 @@ public class SymbolTable {
 	private LinkedHashMap<String, AtomAttribute> symbols;
 
 	public enum EnumType {
-		TB_INT, TB_DOUBLE, TB_CHAR, TB_STRUCT, TB_VOID
+		TB_CHAR, TB_INT, TB_DOUBLE, TB_STRUCT, TB_VOID
 	};
 
 	public enum Clas {
@@ -344,7 +344,14 @@ public class SymbolTable {
 		}
 
 		public static Type getArithType(Type s1, Type s2) {
-			return null;
+			Type a;
+			if (s1.typeBase == s2.typeBase)
+				a = createType(s1.typeBase, -1);
+			else if (s1.typeBase.ordinal() > s2.typeBase.ordinal())
+				a = createType(s1.typeBase, -1);
+			else
+				a = createType(s2.typeBase, -1);
+			return a;
 		}
 	}
 
@@ -382,6 +389,20 @@ public class SymbolTable {
 				d = (Double) val;
 		}
 
+		private CtVal() {
+			// TODO Auto-generated constructor stub
+		}
+
+		@Override
+		protected CtVal clone() {
+			CtVal n = new CtVal();
+			n.d = d;
+			n.i = i;
+			n.str = str;
+			return n;
+
+		}
+
 	}
 
 	public static class RetVal {
@@ -406,6 +427,17 @@ public class SymbolTable {
 			this.isCtVal = false;
 			this.isLVal = true;
 			return s;
+		}
+
+		@Override
+		public RetVal clone() {
+
+			RetVal newRetVal = new RetVal();
+			newRetVal.isCtVal = isCtVal;
+			newRetVal.isLVal = isLVal;
+			newRetVal.type = type.clone();
+			newRetVal.ctVal = ctVal.clone();
+			return newRetVal;
 		}
 	}
 
