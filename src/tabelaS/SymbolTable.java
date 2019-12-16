@@ -41,8 +41,32 @@ public class SymbolTable {
 	}
 
 	public void initExtFct(String extFctHeaderFile) {
-		AtomAttribute putI = addExtFunc("put_i", Type.createType(EnumType.TB_INT, -1));
-		putI.addArg("i", Type.createType(EnumType.TB_CHAR, 0));
+
+		AtomAttribute getS = addExtFunc("get_s", Type.createType(EnumType.TB_VOID, -1));
+		getS.addArg("s", Type.createType(EnumType.TB_CHAR, 0));
+
+		AtomAttribute putS = addExtFunc("put_s", Type.createType(EnumType.TB_VOID, -1));
+		putS.addArg("s", Type.createType(EnumType.TB_CHAR, 0));
+
+		AtomAttribute putI = addExtFunc("put_i", Type.createType(EnumType.TB_VOID, -1));
+		putI.addArg("i", Type.createType(EnumType.TB_INT, -1));
+
+		AtomAttribute getI = addExtFunc("get_i", Type.createType(EnumType.TB_INT, -1));
+
+		AtomAttribute putD = addExtFunc("put_d", Type.createType(EnumType.TB_VOID, -1));
+		putD.addArg("d", Type.createType(EnumType.TB_DOUBLE, -1));
+
+		AtomAttribute getD = addExtFunc("get_d", Type.createType(EnumType.TB_DOUBLE, -1));
+		// putI.addArg("i", Type.createType(EnumType.TB_CHAR, -1));
+
+		AtomAttribute putC = addExtFunc("put_c", Type.createType(EnumType.TB_CHAR, -1));
+		putC.addArg("c", Type.createType(EnumType.TB_CHAR, -1));
+
+		AtomAttribute getC = addExtFunc("get_c", Type.createType(EnumType.TB_CHAR, -1));
+		// putI.addArg("i", Type.createType(EnumType.TB_CHAR, -1));
+
+		AtomAttribute seconds = addExtFunc("seconds", Type.createType(EnumType.TB_DOUBLE, -1));
+		// putI.addArg("i", Type.createType(EnumType.TB_CHAR, -1));
 
 	}
 
@@ -412,7 +436,7 @@ public class SymbolTable {
 		public CtVal ctVal; // the constat value
 
 		public void makePrimitiv(EnumType type, Object val, int nrElements) {
-			this.type = Type.createType(EnumType.TB_INT, nrElements);
+			this.type = Type.createType(type, nrElements);
 			this.ctVal = new CtVal(val);
 			this.isCtVal = true;
 			this.isLVal = false;
@@ -423,7 +447,7 @@ public class SymbolTable {
 			AtomAttribute s = SymbolTable.getInstance().findSymbol(tkName);
 			if (s == null)
 				throw new RuntimeException("undefined symbol " + tkName);
-			this.type = s.type;
+			this.type = s.type.clone();
 			this.isCtVal = false;
 			this.isLVal = true;
 			return s;

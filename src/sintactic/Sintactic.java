@@ -1046,7 +1046,7 @@ public class Sintactic {
 			Type typeInt = Type.createType(EnumType.TB_INT, -1);
 
 			Type.cast(typeInt, rve.type);
-			rv.type = rv.type; // WTF ?
+			rv.type = rv.type.clone(); // WTF ?
 			rv.type.nrElements = -1;
 			rv.isLVal = true;
 			rv.isCtVal = false;
@@ -1083,7 +1083,7 @@ public class Sintactic {
 			if (sMember == null)
 				throw new RuntimeException(
 						String.format("struct %s does not have a member %s", sStruct.name, tokenName));
-			rv.type = sMember.type;
+			rv.type = sMember.type.clone();
 			rv.isLVal = true;
 			rv.isCtVal = false;
 		}
@@ -1188,7 +1188,7 @@ public class Sintactic {
 			{
 				if (i < s.nrOfArgs())// do compare method
 					throw new RuntimeException("too few arguments in call" + tkName);
-				rv.type = s.type;
+				rv.type = s.type.clone();
 				rv.isCtVal = rv.isLVal = false;
 			}
 			nextAtom();
@@ -1235,6 +1235,7 @@ public class Sintactic {
 				sintactic = new Sintactic(alex.getAtoms());
 				sintactic.compile();
 				SymbolTable.getInstance().printSymbolTable();
+				SymbolTable.getInstance().tearDown();
 
 			} catch (FileNotFoundException e) {
 				// TODO Auto-generated catch block
