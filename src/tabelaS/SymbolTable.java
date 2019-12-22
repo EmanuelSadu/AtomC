@@ -74,6 +74,13 @@ public class SymbolTable {
 		return symbols.get(token);
 	}
 
+	public AtomAttribute requireSymbol(String token) {
+		AtomAttribute s = symbols.get(token);
+		if (s == null)
+			throw new RuntimeException("Require symbol is null");
+		return s;
+	}
+
 	public AtomAttribute addSymbol(String token, Clas cls) {
 
 		AtomAttribute symbol = findSymbol(token);
@@ -183,6 +190,10 @@ public class SymbolTable {
 		public int depth;
 		public Args args;
 		public Members members;
+
+		// VM
+		int addr; // vm: the memory address for global symbols
+		int offset; // vm: the stack offset for local symbols
 
 		public AtomAttribute(String token, Clas clsStruct) {
 			this.name = token;
@@ -475,5 +486,4 @@ public class SymbolTable {
 		}
 
 	}
-
 }

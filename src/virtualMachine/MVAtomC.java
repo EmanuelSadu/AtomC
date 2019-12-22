@@ -4,6 +4,8 @@ import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.LinkedList;
 
+import external.ExtFunc;
+import external.PutI;
 import virtualMachine.Instr.Opcode;
 
 public class MVAtomC {
@@ -12,7 +14,6 @@ public class MVAtomC {
 
 	private Stack SP;
 	private LinkedList<Instr> Instructions;
-	// private char[] globals;
 	private HashMap<String, Integer> globalVars;
 
 	private MVAtomC() {
@@ -72,6 +73,11 @@ public class MVAtomC {
 		SP.pushGlobal(size, name);
 	}
 
+	private void replaceByes(int addres, byte[] val) {
+		SP.replaceByes(addres, val);
+
+	}
+
 	public Instr createInstr(Instr.Opcode opcode) {
 		Instr instr = new Instr(opcode);
 		return instr;
@@ -84,6 +90,13 @@ public class MVAtomC {
 	public void addInstr(Instr.Opcode opcode) {
 		Instr i = new Instr(opcode);
 		Instructions.add(i);
+		i.indexNextInstr = Instructions.size();
+	}
+
+	private void addInstrExternal(Opcode callext, ExtFunc extFunc) {
+		Instr i = new Instr(callext);
+		Instructions.add(i);
+		i.extFunc = extFunc;
 		i.indexNextInstr = Instructions.size();
 	}
 
@@ -134,22 +147,21 @@ public class MVAtomC {
 		Instr L1;
 		allocGlobal(Long.BYTES, "a");
 		allocGlobal(Integer.BYTES, "v");
-
 		addInstrA(Opcode.PUSHCT_A, getGlobalVars().get("v"));
 		addInstrI(Opcode.PUSHCT_I, 3);
 		addInstrI(Opcode.STORE, Integer.BYTES);
 		L1 = addInstrA(Opcode.PUSHCT_A, getGlobalVars().get("v"));
 		addInstrI(Opcode.LOAD, Integer.BYTES);
-		// addInstrA(Opcode.CALLEXT,requireSymbol(&symbols,"put_i")->addr);
-		// addInstrA(Opcode.PUSHCT_A,v);
-		// addInstrA(Opcode.PUSHCT_A,v);
+		addInstrExternal(Opcode.CALLEXT, new PutI());
+		addInstrA(Opcode.PUSHCT_A, getGlobalVars().get("v"));
+		addInstrA(Opcode.PUSHCT_A, getGlobalVars().get("v"));
 		addInstrI(Opcode.LOAD, Integer.BYTES);
 		addInstrI(Opcode.PUSHCT_I, 1);
 		addInstr(Opcode.SUB_I);
 		addInstrI(Opcode.STORE, Integer.BYTES);
-		// addInstrA(Opcode.PUSHCT_A,v);
-		addInstrI(Opcode.LOAD, Long.BYTES + Integer.BYTES);
-		// addInstrInstrA(Opcode.JT_I, L1);
+		addInstrA(Opcode.PUSHCT_A, getGlobalVars().get("v"));
+		addInstrI(Opcode.LOAD, Integer.BYTES);
+		addInstrInstrA(Opcode.JT_I, L1);
 		addInstr(Opcode.HALT);
 
 	}
@@ -225,9 +237,10 @@ public class MVAtomC {
 				break;
 
 			case CALLEXT:
-				// System.out.printf("CALLEXT\t%p\n", IP.val1.addr);
+				System.out.printf("CALLEXT\t%d\n", IP.val1.addres);
+				IP.extFunc.run();
 				// (*(void(*)())IP.val1.addr)();
-				// IP=IP.next;
+				IP = Instructions.get(instrIndex++);
 				break;
 
 			// CAST
@@ -273,25 +286,225 @@ public class MVAtomC {
 				pushd(dVal1);
 				IP = Instructions.get(instrIndex++);
 				break;
-			/*
-			 * case DROP: iVal1=IP.val1.i; System.out.printf("DROP\t%d\n",iVal1);
-			 * if(SP-iVal1<stack)err("not enough stack bytes"); SP-=iVal1; IP=IP.next;
-			 * break; case ENTER: iVal1=IP.val1.i; System.out.printf("ENTER\t%d\n",iVal1);
-			 * pusha(FP); FP=SP; SP+=iVal1; IP=IP.next; break; case EQ_D: dVal1=popd();
-			 * dVal2=popd();
-			 * System.out.printf("EQ_D\t(%g==%g . %d)\n",dVal2,dVal1,dVal2==dVal1);
-			 * pushi(dVal2==dVal1); IP=IP.next; break;
-			 */
+
+			case DIV_D:
+				dVal1 = popd();
+				dVal2 = popd();
+				System.out.printf("DIV_D\t(%g-%g . %g)\n", dVal2, dVal1, dVal2 / dVal1);
+				pushd(dVal2 / dVal1);
+				IP = Instructions.get(instrIndex++);
+				break;
+
+			case DIV_I:
+				iVal1 = popi();
+				iVal2 = popi();
+				System.out.printf("DIV_I\t(%g-%g . %g)\n", iVal2, iVal1, iVal2 / iVal1);
+				pushi(iVal2 / iVal1);
+				IP = Instructions.get(instrIndex++);
+				break;
+			case DIV_C:
+				cVal1 = popc();
+				cVal2 = popc();
+				System.out.printf("DIV_C\t(%g-%g . %g)\n", cVal2, cVal1, cVal2 / cVal1);
+				pushi(cVal2 / cVal1);
+				IP = Instructions.get(instrIndex++);
+				break;
+
+			case DROP:
+				iVal1 = IP.val1.i;
+				System.out.printf("DROP\t%d\n", iVal1);
+				SP.pop(iVal1);
+				IP = Instructions.get(instrIndex++);
+				break;
+
+			case ENTER:
+				iVal1 = IP.val1.i;
+				System.out.printf("ENTER\t%d\n", iVal1);
+				// pusha(FP);
+				// FP = SP;
+				// SP += iVal1;
+				IP = Instructions.get(instrIndex++);
+				break;
+
+			case EQ_A:
+				addres1 = popa();
+				addres2 = popa();
+				System.out.printf("EQ_A\t(%g==%g . %d)\n", addres2, addres1, addres2 == addres1);
+				if (addres1 == addres2)
+					pushi(1);
+				else
+					pushi(0);
+				IP = Instructions.get(instrIndex++);
+				break;
+
+			case EQ_D:
+				dVal1 = popd();
+				dVal2 = popd();
+				System.out.printf("EQ_D\t(%g==%g . %d)\n", dVal2, dVal1, dVal2 == dVal1);
+				if (dVal1 == dVal2)
+					pushi(1);
+				else
+					pushi(0);
+				IP = Instructions.get(instrIndex++);
+				break;
+
+			case EQ_I:
+				iVal1 = popi();
+				iVal2 = popi();
+				System.out.printf("EQ_I\t(%g==%g . %d)\n", iVal2, iVal1, iVal2 == iVal1);
+				if (iVal1 == iVal2)
+					pushi(1);
+				else
+					pushi(0);
+				IP = Instructions.get(instrIndex++);
+				break;
+
+			case EQ_C:
+				cVal1 = popc();
+				cVal2 = popc();
+				System.out.printf("EQ_C\t(%g==%g . %d)\n", cVal2, cVal1, cVal2 == cVal1);
+				if (cVal1 == cVal2)
+					pushi(1);
+				else
+					pushi(0);
+				IP = Instructions.get(instrIndex++);
+				break;
+
+			case GREATER_D:
+				dVal1 = popd();
+				dVal2 = popd();
+				System.out.printf("GREATER_D\t(%g==%g . %d)\n", dVal2, dVal1, dVal2 < dVal1);
+				if (dVal1 > dVal2)
+					pushi(1);
+				else
+					pushi(0);
+				IP = Instructions.get(instrIndex++);
+				break;
+
+			case GREATER_I:
+				iVal1 = popi();
+				iVal2 = popi();
+				System.out.printf("GREATER_I\t(%g==%g . %d)\n", iVal2, iVal1, iVal2 < iVal1);
+				if (iVal1 > iVal2)
+					pushi(1);
+				else
+					pushi(0);
+				IP = Instructions.get(instrIndex++);
+				break;
+
+			case GREATER_C:
+				cVal1 = popc();
+				cVal2 = popc();
+				System.out.printf("GREATER_C\t(%g==%g . %d)\n", cVal2, cVal1, cVal2 < cVal1);
+				if (cVal1 > cVal2)
+					pushi(1);
+				else
+					pushi(0);
+				IP = Instructions.get(instrIndex++);
+				break;
+
+			case GREATEREQ_D:
+				dVal1 = popd();
+				dVal2 = popd();
+				System.out.printf("GREATEREQ_D\t(%g==%g . %d)\n", dVal2, dVal1, dVal2 <= dVal1);
+				if (dVal1 >= dVal2)
+					pushi(1);
+				else
+					pushi(0);
+				IP = Instructions.get(instrIndex++);
+				break;
+
+			case GREATEREQ_I:
+				iVal1 = popi();
+				iVal2 = popi();
+				System.out.printf("GREATEREQ_I\t(%g==%g . %d)\n", iVal2, iVal1, iVal2 <= iVal1);
+				if (iVal1 >= iVal2)
+					pushi(1);
+				else
+					pushi(0);
+				IP = Instructions.get(instrIndex++);
+				break;
+
+			case GREATEREQ_C:
+				cVal1 = popc();
+				cVal2 = popc();
+				System.out.printf("GREATEREQ_C\t(%g==%g . %d)\n", cVal2, cVal1, cVal2 <= cVal1);
+				if (cVal1 >= cVal2)
+					pushi(1);
+				else
+					pushi(0);
+				IP = Instructions.get(instrIndex++);
+				break;
+
 			case HALT:
 				System.out.printf("HALT\n");
 				return;
-			/*
-			 * case INSERT: iVal1=IP.val1.i; // iDst iVal2=IP.args[1].i; // nBytes
-			 * System.out.printf("INSERT\t%d,%d\n",iVal1,iVal2);
-			 * if(SP+iVal2>stackAfter)err("out of stack");
-			 * memmove(SP-iVal1+iVal2,SP-iVal1,iVal1); //make room
-			 * memmove(SP-iVal1,SP+iVal2,iVal2); //dup SP+=iVal2; IP=IP.next; break;
-			 */
+
+			case INSERT:
+				iVal1 = IP.val1.i; // iDst iVal2=IP.args[1].i; // nBytes
+				System.out.printf("INSERT\t%d,%d\n", iVal1, iVal2);
+				// if (SP + iVal2 > stackAfter)
+				// err("out of stack");
+				// memmove(SP - iVal1 + iVal2, SP - iVal1, iVal1); // make room
+				// memmove(SP - iVal1, SP + iVal2, iVal2); // dup SP+=iVal2;
+				IP = Instructions.get(instrIndex++);
+				break;
+
+			case JF_A:
+				addres1 = popa();
+				System.out.printf("JF\t\t(%d)\n", addres1);
+				if (addres1 == 0) {
+					IP = IP.val1.instrAddres;
+					instrIndex = IP.indexNextInstr;
+				} else
+					IP = Instructions.get(instrIndex++);
+				break;
+
+			case JF_I:
+				iVal1 = popi();
+				System.out.printf("JF\t\t(%d)\n", iVal1);
+				if (iVal1 == 0) {
+					IP = IP.val1.instrAddres;
+					instrIndex = IP.indexNextInstr;
+				} else
+					IP = Instructions.get(instrIndex++);
+				break;
+
+			case JF_D:
+				dVal1 = popd();
+				System.out.printf("JF\t\t(%d)\n", dVal1);
+				if (dVal1 == 0) {
+					IP = IP.val1.instrAddres;
+					instrIndex = IP.indexNextInstr;
+				} else
+					IP = Instructions.get(instrIndex++);
+				break;
+
+			case JF_C:
+				cVal1 = popc();
+				System.out.printf("JF\t\t(%d)\n", cVal1);
+				if (cVal1 == 0) {
+					IP = IP.val1.instrAddres;
+					instrIndex = IP.indexNextInstr;
+				} else
+					IP = Instructions.get(instrIndex++);
+				break;
+
+			case JMP:
+				IP = IP.val1.instrAddres;
+				instrIndex = IP.indexNextInstr;
+				break;
+
+			case JT_A:
+				addres1 = popa();
+				System.out.printf("JT\t\t(%d)\n", addres1);
+				if (addres1 != 0) {
+					IP = IP.val1.instrAddres;
+					instrIndex = IP.indexNextInstr;
+				} else
+					IP = Instructions.get(instrIndex++);
+				break;
+
 			case JT_I:
 				iVal1 = popi();
 				System.out.printf("JT\t\t(%d)\n", iVal1);
@@ -322,23 +535,120 @@ public class MVAtomC {
 					IP = Instructions.get(instrIndex++);
 				break;
 
+			case LESS_D:
+				dVal1 = popd();
+				dVal2 = popd();
+				System.out.printf("LESS_D\t(%g==%g . %d)\n", dVal2, dVal1, dVal2 > dVal1);
+				if (dVal1 < dVal2)
+					pushi(1);
+				else
+					pushi(0);
+				IP = Instructions.get(instrIndex++);
+				break;
+
+			case LESS_I:
+				iVal1 = popi();
+				iVal2 = popi();
+				System.out.printf("LESS_I\t(%g==%g . %d)\n", iVal2, iVal1, iVal2 > iVal1);
+				if (iVal1 < iVal2)
+					pushi(1);
+				else
+					pushi(0);
+				IP = Instructions.get(instrIndex++);
+				break;
+
+			case LESS_C:
+				cVal1 = popc();
+				cVal2 = popc();
+				System.out.printf("LESS_C\t(%g==%g . %d)\n", cVal2, cVal1, cVal2 > cVal1);
+				if (cVal1 < cVal2)
+					pushi(1);
+				else
+					pushi(0);
+				IP = Instructions.get(instrIndex++);
+				break;
+
+			case LESSEQ_D:
+				dVal1 = popd();
+				dVal2 = popd();
+				System.out.printf("LESSEQ_D\t(%g==%g . %d)\n", dVal2, dVal1, dVal2 >= dVal1);
+				if (dVal1 <= dVal2)
+					pushi(1);
+				else
+					pushi(0);
+				IP = Instructions.get(instrIndex++);
+				break;
+
+			case LESSEQ_I:
+				iVal1 = popi();
+				iVal2 = popi();
+				System.out.printf("LESSEQ_I\t(%g==%g . %d)\n", iVal2, iVal1, iVal2 >= iVal1);
+				if (iVal1 <= iVal2)
+					pushi(1);
+				else
+					pushi(0);
+				IP = Instructions.get(instrIndex++);
+				break;
+
+			case LESSEQ_C:
+				cVal1 = popc();
+				cVal2 = popc();
+				System.out.printf("LESSEQ_C\t(%g==%g . %d)\n", cVal2, cVal1, cVal2 >= cVal1);
+				if (cVal1 <= cVal2)
+					pushi(1);
+				else
+					pushi(0);
+				IP = Instructions.get(instrIndex++);
+				break;
+
 			case LOAD:
-				iVal1 = IP.val1.i;
-				// addres = popa();
+				iVal1 = IP.val1.i; // nr of bytes
+				addres1 = popa();
 				System.out.printf("LOAD\t%d\t(%d)\n", iVal1, addres1);
-				// if (SP + iVal1 > stackAfter)
-				// err("out of stack");
+				SP.push(SP.readBytes(addres1, iVal1));
 				// memcpy(SP, addres, iVal1);
 				// SP += iVal1;
 				IP = Instructions.get(instrIndex++);
 				break;
-			/*
-			 * case OFFSET: iVal1=popi(); addres=popa();
-			 * System.out.printf("OFFSET\t(%p+%d . %p)\n",addres,iVal1,addres+iVal1);
-			 * pusha(addres+iVal1); IP=IP.next; break; case PUSHFPADDR: iVal1=IP.val1.i;
-			 * System.out.printf("PUSHFPADDR\t%d\t(%p)\n",iVal1,FP+iVal1); pusha(FP+iVal1);
-			 * IP=IP.next; break;
-			 */
+
+			case MUL_D:
+				dVal1 = popd();
+				dVal2 = popd();
+				System.out.printf("MUL_D\t(%g-%g . %g)\n", dVal2, dVal1, dVal2 * dVal1);
+				pushd(dVal2 * dVal1);
+				IP = Instructions.get(instrIndex++);
+				break;
+
+			case MUL_I:
+				iVal1 = popi();
+				iVal2 = popi();
+				System.out.printf("MUL_I\t(%g-%g . %g)\n", iVal2, iVal1, iVal2 * iVal1);
+				pushi(iVal2 * iVal1);
+				IP = Instructions.get(instrIndex++);
+				break;
+			case MUL_C:
+				cVal1 = popc();
+				cVal2 = popc();
+				System.out.printf("MUL_C\t(%g-%g . %g)\n", cVal2, cVal1, cVal2 * cVal1);
+				pushi(cVal2 * cVal1);
+				IP = Instructions.get(instrIndex++);
+				break;
+
+			case OFFSET:
+				iVal1 = popi();
+				addres1 = popa();
+				System.out.printf("OFFSET\t(%p+%d . %p)\n", addres1, iVal1, addres1 + iVal1);
+				pusha(addres1 + iVal1);
+				IP = Instructions.get(instrIndex++);
+				break;
+
+			case PUSHFPADDR:
+				iVal1 = IP.val1.i;
+				// System.out.printf("PUSHFPADDR\t%d\t(%p)\n", iVal1, FP + iVal1);
+				// pusha(FP + iVal1);
+				IP = Instructions.get(instrIndex++);
+				break;
+
 			case PUSHCT_A:
 				addres1 = IP.val1.addres;
 				System.out.printf("PUSHCT_A\t%d\n", addres1);
@@ -374,15 +684,13 @@ public class MVAtomC {
 			 */
 
 			case STORE:
-				// iVal1 = IP.val1.i;
+				iVal1 = IP.val1.i;
 				byte[] val = SP.pop(IP.val1.i);
 				addres1 = popa();
-				// if(SP-(sizeof(void*)+iVal1)<stack)
-				// err("not enough stack bytes for SET");
-				// addres=*(void**)(SP-((sizeof(void*)+iVal1)));
+
 				System.out.printf("STORE\t%d\t(%d)\n", iVal1, addres1);
-				// memcpy(addres,SP-iVal1,iVal1);
-				// SP-=sizeof(void*)+iVal1;
+
+				replaceByes(addres1, val);
 				IP = Instructions.get(instrIndex++);
 				break;
 
