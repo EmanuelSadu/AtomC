@@ -26,10 +26,11 @@ public class Instr {
 	public int indexNextInstr;
 	public ExtFunc extFunc;
 
-	class Register {
-		int i;
+	public class Register {
+		public int i;
 		double d;
 		public Instr instrAddres;
 		int addres;
 	}
+
 }

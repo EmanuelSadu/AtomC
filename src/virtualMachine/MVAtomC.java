@@ -6,6 +6,8 @@ import java.util.LinkedList;
 
 import external.ExtFunc;
 import external.PutI;
+import tabelaS.SymbolTable.RetVal;
+import tabelaS.SymbolTable.Type;
 import virtualMachine.Instr.Opcode;
 
 public class MVAtomC {
@@ -15,6 +17,17 @@ public class MVAtomC {
 	private Stack SP;
 	private LinkedList<Instr> Instructions;
 	private HashMap<String, Integer> globalVars;
+	public int sizeArgs, offset;
+
+	// Internals;
+	private char cVal1, cVal2;
+	private int iVal1, iVal2;
+	private double dVal1, dVal2;
+	private int addres1, addres2;
+	private Instr instrAdress;
+	private Instr FP;
+
+	public Instr crtLoopEnd = null;
 
 	private MVAtomC() {
 		SP = new Stack(32 * 1024);
@@ -26,6 +39,10 @@ public class MVAtomC {
 		if (instance == null)
 			instance = new MVAtomC();
 		return instance;
+	}
+
+	public void tearDown() {
+		instance = null;
 	}
 
 	public void pusha(int index) {
@@ -69,8 +86,10 @@ public class MVAtomC {
 		return res;
 	}
 
-	public void allocGlobal(int size, String name) {
+	public int allocGlobal(int size, String name) {
+		int start = SP.getPosition();
 		SP.pushGlobal(size, name);
+		return start;
 	}
 
 	private void replaceByes(int addres, byte[] val) {
@@ -84,25 +103,44 @@ public class MVAtomC {
 	}
 
 	public void insertInstrAfter(Instr after, Instr i) {
+		i.indexNextInstr = 0;
+		int index = after.indexNextInstr;
+		for (Instr in : Instructions) {
+			if (in.indexNextInstr == index) {
+				Instructions.add(in.indexNextInstr, i);
 
+			} else if (in.indexNextInstr >= index)
+				in.indexNextInstr++;
+		}
+		i.indexNextInstr = index;
 	}
 
-	public void addInstr(Instr.Opcode opcode) {
+	public Instr addInstr(Instr.Opcode opcode) {
 		Instr i = new Instr(opcode);
 		Instructions.add(i);
 		i.indexNextInstr = Instructions.size();
+		return i;
 	}
 
-	private void addInstrExternal(Opcode callext, ExtFunc extFunc) {
-		Instr i = new Instr(callext);
+	public void appendInstr(Instr i) {
+
 		Instructions.add(i);
-		i.extFunc = extFunc;
 		i.indexNextInstr = Instructions.size();
 	}
 
 	public void addInstrAfter(Instr after, Instr.Opcode opcode) {
 		Instr i = createInstr(opcode);
 		insertInstrAfter(after, i);
+	}
+
+	public void deleteInstrAfter(Instr after) {
+		LinkedList<Instr> tmp = new LinkedList<Instr>();
+		int index = after.indexNextInstr;
+		for (Instr in : Instructions) {
+			if (in.indexNextInstr <= index)
+				tmp.add(in);
+		}
+		Instructions = tmp;
 	}
 
 	public Instr addInstrA(Instr.Opcode opcode, int address) {
@@ -135,13 +173,22 @@ public class MVAtomC {
 		i.indexNextInstr = Instructions.size();
 	}
 
-	// Internals;
-	private char cVal1, cVal2;
-	private int iVal1, iVal2;
-	private double dVal1, dVal2;
-	private int addres1, addres2;
-	private Instr instrAdress;
-	private Instr FP;
+	private void addInstrExternal(Opcode callext, ExtFunc extFunc) {
+		Instr i = new Instr(callext);
+		Instructions.add(i);
+		i.extFunc = extFunc;
+		i.indexNextInstr = Instructions.size();
+	}
+
+	public void displayInstructions() {
+		for (Instr i : Instructions) {
+			System.out.printf("Instruction %d -> %s\n", i.indexNextInstr - 1, i.opcode);
+		}
+	}
+
+	public Instr getLast() {
+		return Instructions.getLast();
+	}
 
 	void mvTest() {
 		Instr L1;
@@ -231,7 +278,7 @@ public class MVAtomC {
 
 			case CALL:
 				instrAdress = IP.val1.instrAddres;
-				System.out.printf("CALL\t%p\n", instrAdress.opcode);
+				System.out.printf("CALL\t%s\n", instrAdress.opcode);
 				pusha(instrIndex++);
 				IP = instrAdress;
 				break;
@@ -726,6 +773,7 @@ public class MVAtomC {
 	public static void main(String[] args) {
 		MVAtomC.getInstance();
 		MVAtomC.getInstance().mvTest();
+		MVAtomC.getInstance().displayInstructions();
 		MVAtomC.getInstance().run();
 	}
 
@@ -746,4 +794,89 @@ public class MVAtomC {
 	public void setGlobalVars(HashMap<String, Integer> globalVars) {
 		this.globalVars = globalVars;
 	}
+
+	// Utils
+
+	public Instr createCondJmp(RetVal rv) {
+		if (rv.type.nrElements >= 0) { // arrays
+			return addInstr(Opcode.JF_A);
+		} else { // non-arrays
+			getRVal(rv);
+			switch (rv.type.typeBase) {
+			case TB_CHAR:
+				return addInstr(Opcode.JF_C);
+			case TB_DOUBLE:
+				return addInstr(Opcode.JF_D);
+			case TB_INT:
+				return addInstr(Opcode.JF_I);
+			default:
+				return null;
+			}
+		}
+	}
+
+	public Instr getRVal(RetVal rv) {
+		if (rv.isLVal) {
+			switch (rv.type.typeBase) {
+			case TB_INT:
+			case TB_DOUBLE:
+			case TB_CHAR:
+			case TB_STRUCT:
+				addInstrI(Opcode.LOAD, rv.type.typeArgSize());
+				break;
+			default:
+				new RuntimeException(String.format("unhandled type: %d", rv.type.typeBase));
+			}
+		}
+		return Instructions.getLast();
+	}
+
+	public void addCastInstr(Instr after, Type actualType, Type neededType) {
+		if (actualType.nrElements >= 0 || neededType.nrElements >= 0)
+			return;
+		switch (actualType.typeBase) {
+		case TB_CHAR:
+			switch (neededType.typeBase) {
+			case TB_CHAR:
+				break;
+			case TB_INT:
+				addInstrAfter(after, Opcode.CAST_C_I);
+				break;
+			case TB_DOUBLE:
+				addInstrAfter(after, Opcode.CAST_C_D);
+				break;
+			}
+			break;
+		case TB_INT:
+			switch (neededType.typeBase) {
+			case TB_CHAR:
+				addInstrAfter(after, Opcode.CAST_I_C);
+				break;
+			case TB_INT:
+				break;
+			case TB_DOUBLE:
+				addInstrAfter(after, Opcode.CAST_I_D);
+				break;
+			}
+			break;
+		case TB_DOUBLE:
+			switch (neededType.typeBase) {
+			case TB_CHAR:
+				addInstrAfter(after, Opcode.CAST_D_C);
+				break;
+			case TB_INT:
+				addInstrAfter(after, Opcode.CAST_D_I);
+				break;
+			case TB_DOUBLE:
+				break;
+			}
+			break;
+		}
+	}
+
+	public void resetGcVars() {
+		offset = sizeArgs = 0;
+
+	}
+
 }

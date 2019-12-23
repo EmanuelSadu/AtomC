@@ -1,9 +1,13 @@
 package tabelaS;
 
+import java.util.Collection;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 import lexical.Atom.Iduri;
+import virtualMachine.Instr;
+import virtualMachine.MVAtomC;
 
 public class SymbolTable {
 
@@ -124,7 +128,7 @@ public class SymbolTable {
 		return symbol;
 	}
 
-	public void addFcArg(String tokenName, Type type) {
+	public AtomAttribute addFcArg(String tokenName, Type type) {
 
 		AtomAttribute symbol = new AtomAttribute(tokenName, Clas.CLS_VAR);
 		symbol.mem = Mem.MEM_ARG;
@@ -136,6 +140,7 @@ public class SymbolTable {
 		symbol.mem = Mem.MEM_ARG;
 		symbol.type = type;
 		crtFunc.addArg(symbol);
+		return symbol;
 	}
 
 	public void addVar(String tokenName, Type type) {
@@ -159,6 +164,13 @@ public class SymbolTable {
 			s.mem = Mem.MEM_GLOBAL;
 		}
 		s.type = type;
+
+		if (SymbolTable.getInstance().crtStruct != null || SymbolTable.getInstance().crtFunc != null) {
+			s.offset = MVAtomC.getInstance().offset;
+		} else {
+			s.addr = MVAtomC.getInstance().allocGlobal(s.type.typeFullSize(), s.name);
+		}
+		MVAtomC.getInstance().offset += s.type.typeFullSize();
 	}
 
 	public void deleteSymbolsAfter(AtomAttribute last) {
@@ -181,6 +193,10 @@ public class SymbolTable {
 		return last;
 	}
 
+	public Collection<AtomAttribute> symbolsView() {
+		return Collections.unmodifiableCollection(symbols.values());
+	}
+
 	public static class AtomAttribute {
 
 		public String name;
@@ -192,8 +208,9 @@ public class SymbolTable {
 		public Members members;
 
 		// VM
-		int addr; // vm: the memory address for global symbols
-		int offset; // vm: the stack offset for local symbols
+		public int addr; // vm: the memory address for global symbols
+		public int offset; // vm: the stack offset for local symbols
+		public Instr instrAddres;
 
 		public AtomAttribute(String token, Clas clsStruct) {
 			this.name = token;
@@ -388,6 +405,43 @@ public class SymbolTable {
 				a = createType(s2.typeBase, -1);
 			return a;
 		}
+
+		public int typeBaseSize() {
+			int size = 0;
+			switch (this.typeBase) {
+			case TB_INT:
+				size = Integer.BYTES;
+				break;
+			case TB_DOUBLE:
+				size = Double.BYTES;
+				break;
+			case TB_CHAR:
+				size = Character.BYTES;
+				break;
+			case TB_STRUCT:
+
+				for (AtomAttribute is : this.s.members.members.values()) {
+					size += is.type.typeFullSize();
+				}
+				break;
+			case TB_VOID:
+				size = 0;
+				break;
+			default:
+				new RuntimeException(String.format("invalid typeBase: %d", this.typeBase));
+			}
+			return size;
+		}
+
+		public int typeFullSize() {
+			return this.typeBaseSize() * (this.nrElements > 0 ? this.nrElements : 1);
+		}
+
+		public int typeArgSize() {
+			if (this.nrElements >= 0)
+				return 4;
+			return this.typeBaseSize();
+		}
 	}
 
 	private class Args {
@@ -401,6 +455,10 @@ public class SymbolTable {
 	private class Members {
 
 		private LinkedHashMap<String, AtomAttribute> members;
+
+		public LinkedHashMap<String, AtomAttribute> getMembers() {
+			return members;
+		}
 
 		public Members() {
 			members = new LinkedHashMap<String, SymbolTable.AtomAttribute>();

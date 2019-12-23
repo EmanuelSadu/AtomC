@@ -18,6 +18,10 @@ public class Stack {
 
 	}
 
+	public int getPosition() {
+		return buf.position();
+	}
+
 	public void push(int i) {
 		buf.putInt(i);
 	}

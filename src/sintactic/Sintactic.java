@@ -12,8 +12,12 @@ import tabelaS.SymbolTable;
 import tabelaS.SymbolTable.AtomAttribute;
 import tabelaS.SymbolTable.Clas;
 import tabelaS.SymbolTable.EnumType;
+import tabelaS.SymbolTable.Mem;
 import tabelaS.SymbolTable.RetVal;
 import tabelaS.SymbolTable.Type;
+import virtualMachine.Instr;
+import virtualMachine.Instr.Opcode;
+import virtualMachine.MVAtomC;
 
 public class Sintactic {
 
@@ -72,6 +76,10 @@ public class Sintactic {
 	private boolean consumeProgram() {
 
 		nextAtom();
+
+		Instr labelMain = MVAtomC.getInstance().addInstr(Opcode.CALL);
+		MVAtomC.getInstance().addInstr(Opcode.HALT);
+
 		while (currentAtom().type != Iduri.END) {
 			saveAtom();
 			if (consumeDeclStruct()) {
@@ -89,6 +97,9 @@ public class Sintactic {
 				continue;
 			}
 			break;
+		}
+		{
+			labelMain.val1.instrAddres = SymbolTable.getInstance().requireSymbol("main").instrAddres;// to think;
 		}
 
 		if (currentAtom().type == Iduri.END)
@@ -119,6 +130,8 @@ public class Sintactic {
 			gotoNextDelimitator();
 			return false;
 		}
+
+		MVAtomC.getInstance().offset = 0;
 
 		SymbolTable.getInstance().crtStruct = SymbolTable.getInstance().addStructSymbol(tokenName);
 
@@ -218,8 +231,12 @@ public class Sintactic {
 	}
 
 	private boolean consumeArrayDecl(SymbolTable.Type type) {
+		Instr instrBeforeExpr;
 		if (currentAtomType() != Iduri.LBRACKET)
 			return false;
+		{
+			instrBeforeExpr = MVAtomC.getInstance().getLast();
+		}
 		nextAtom();
 		RetVal rv = new RetVal();
 		if (consumeExpr(rv)) {
@@ -231,7 +248,7 @@ public class Sintactic {
 		} else {
 			type.nrElements = 0;
 		}
-
+		MVAtomC.getInstance().deleteInstrAfter(instrBeforeExpr);
 		if (currentAtomType() != Iduri.RBRACKET) {
 			errorReporter.append(String.format(prefix, this.currentLine(), "Missing close ]"));
 			gotoNextDelimitator();
@@ -272,6 +289,9 @@ public class Sintactic {
 			gotoNextDelimitator();
 			return false;
 		}
+		{
+			MVAtomC.getInstance().resetGcVars();
+		}
 		String tokenName = currentAtom().text;
 		nextAtom();
 
@@ -303,6 +323,19 @@ public class Sintactic {
 			gotoNextDelimitator();
 			return false;
 		}
+
+		{
+			SymbolTable.getInstance().crtFunc.instrAddres = MVAtomC.getInstance().addInstr(Opcode.ENTER);
+			MVAtomC.getInstance().sizeArgs = MVAtomC.getInstance().offset;
+			// update args offsets for correct FP indexing
+			for (AtomAttribute ps : SymbolTable.getInstance().symbolsView()) {// iterate all symbols ?
+				if (ps.mem == Mem.MEM_ARG) {
+					// 2*sizeof(void*) == sizeof(retAddr)+sizeof(FP)
+					ps.offset -= MVAtomC.getInstance().sizeArgs + 2 * 4;
+				}
+			}
+			MVAtomC.getInstance().offset = 0;
+		}
 		SymbolTable.getInstance().crtDepth--;
 		nextAtom();
 
@@ -312,6 +345,14 @@ public class Sintactic {
 			return false;
 		}
 		SymbolTable.getInstance().deleteSymbolsAfter(SymbolTable.getInstance().crtFunc);
+		{
+			// before "crtFunc=NULL;"
+			SymbolTable.getInstance().crtFunc.instrAddres.val1.i = MVAtomC.getInstance().offset; // setup the ENTER
+																									// argument
+			if (SymbolTable.getInstance().crtFunc.type.typeBase == EnumType.TB_VOID) {
+				MVAtomC.getInstance().addInstrII(Opcode.RET, MVAtomC.getInstance().sizeArgs, 0);
+			}
+		}
 		SymbolTable.getInstance().crtFunc = null;
 		return true;
 	}
@@ -330,8 +371,14 @@ public class Sintactic {
 
 		if (!consumeArrayDecl(type))
 			type.nrElements = -1;
-		SymbolTable.getInstance().addFcArg(tokenName, type);
 
+		AtomAttribute s = SymbolTable.getInstance().addFcArg(tokenName, type);
+		{
+			// for each "s" (the one as local var and the one as arg):
+			s.offset = MVAtomC.getInstance().offset;
+			// only once at the end, after "offset" is used and "s.type" is set
+			MVAtomC.getInstance().offset += s.type.typeArgSize();
+		}
 		return true;
 	}
 
@@ -384,7 +431,10 @@ public class Sintactic {
 	private boolean consumeStmSemicolon() {
 
 		RetVal rv = new RetVal();
-		consumeExpr(rv);
+		if (consumeExpr(rv)) {
+			if (rv.type.typeArgSize() != 0)
+				MVAtomC.getInstance().addInstrI(Opcode.DROP, rv.type.typeArgSize());
+		}
 
 		if (currentAtomType() != Iduri.SEMICOLON) {
 			errorReporter.append(String.format(prefix, this.currentLine(), "? Missing ; Assuming it"));
@@ -403,7 +453,10 @@ public class Sintactic {
 		nextAtom();
 
 		RetVal rv = new RetVal();
-		consumeExpr(rv);
+		if (consumeExpr(rv)) {
+			Instr i = MVAtomC.getInstance().getRVal(rv);
+			MVAtomC.getInstance().addCastInstr(i, rv.type, SymbolTable.getInstance().crtFunc.type);
+		}
 		{
 			if (SymbolTable.getInstance().crtFunc.type.typeBase == EnumType.TB_VOID)
 				throw new RuntimeException("a void function cannot return a value");
@@ -413,6 +466,12 @@ public class Sintactic {
 			errorReporter.append(String.format(prefix, this.currentLine(), " return Missing ; Assuming it"));
 			gotoNextDelimitator();
 			return false;
+		}
+		if (SymbolTable.getInstance().crtFunc.type.typeBase == EnumType.TB_VOID) {
+			MVAtomC.getInstance().addInstrII(Opcode.RET, MVAtomC.getInstance().sizeArgs, 0);
+		} else {
+			MVAtomC.getInstance().addInstrII(Opcode.RET, MVAtomC.getInstance().sizeArgs,
+					SymbolTable.getInstance().crtFunc.type.typeArgSize());
 		}
 		nextAtom();
 		return true;
@@ -428,6 +487,9 @@ public class Sintactic {
 			gotoNextDelimitator();
 			return false;
 		}
+		if (MVAtomC.getInstance().crtLoopEnd != null)
+			System.out.println("break without for or while");
+		MVAtomC.getInstance().addInstrInstrA(Opcode.JMP, MVAtomC.getInstance().crtLoopEnd);
 		nextAtom();
 		return true;
 	}
@@ -435,7 +497,8 @@ public class Sintactic {
 	private boolean consumeStmFor() {
 		if (currentAtomType() != Iduri.FOR)
 			return false;
-
+		Instr oldLoopEnd = MVAtomC.getInstance().crtLoopEnd;
+		MVAtomC.getInstance().crtLoopEnd = MVAtomC.getInstance().createInstr(Opcode.NOP);
 		nextAtom();
 		if (currentAtomType() != Iduri.LPAR) {
 			errorReporter.append(String.format(prefix, this.currentLine(), " stm for Missing open ("));
@@ -445,17 +508,24 @@ public class Sintactic {
 		nextAtom();
 
 		RetVal rv1 = new RetVal();
-		consumeExpr(rv1);
+		if (consumeExpr(rv1)) {
+			if (rv1.type.typeArgSize() != 0)
+				MVAtomC.getInstance().addInstrI(Opcode.DROP, rv1.type.typeArgSize());
+		}
 
 		if (currentAtomType() != Iduri.SEMICOLON) {
 			errorReporter.append(String.format(prefix, this.currentLine(), "Missing ; Assuming it"));
 			gotoNextDelimitator();
 			return false;
 		}
+		Instr i2 = MVAtomC.getInstance().getLast();
 		nextAtom();
 
 		RetVal rv2 = new RetVal();
-		consumeExpr(rv2);
+		Instr i4 = null;
+		if (consumeExpr(rv2)) {
+			i4 = MVAtomC.getInstance().createCondJmp(rv2);
+		}
 		{
 
 			if (rv2.type.typeBase == EnumType.TB_STRUCT)
@@ -466,16 +536,21 @@ public class Sintactic {
 			gotoNextDelimitator();
 			return false;
 		}
+		Instr i3 = MVAtomC.getInstance().getLast();
 		nextAtom();
 
 		RetVal rv3 = new RetVal();
-		consumeExpr(rv3);
+		if (consumeExpr(rv3)) {
+			if (rv3.type.typeArgSize() != 0)
+				MVAtomC.getInstance().addInstrI(Opcode.DROP, rv3.type.typeArgSize());
+		}
 
 		if (currentAtomType() != Iduri.RPAR) {
 			errorReporter.append(String.format(prefix, this.currentLine(), "Missing close )"));
 			gotoNextDelimitator();
 			return false;
 		}
+		Instr ibs = MVAtomC.getInstance().getLast(); /* ibs is before stm */
 		nextAtom();
 
 		if (!consumeStm()) {
@@ -483,12 +558,27 @@ public class Sintactic {
 			gotoNextDelimitator();
 			return false;
 		}
+
+		// if rv3 exists, exchange rv3 code with stm code: rv3 stm . stm rv3
+		/*
+		 * if (ib3 != ibs) { i3 = ib3.next; is = ibs.next; ib3.next = is; is.last = ib3;
+		 * lastInstruction.next = i3; i3.last = lastInstruction; ibs.next = NULL;
+		 * lastInstruction = ibs; }
+		 */
+		MVAtomC.getInstance().addInstrA(Opcode.JMP, i2.indexNextInstr);
+		MVAtomC.getInstance().appendInstr(MVAtomC.getInstance().crtLoopEnd);
+		if (i4 != null)
+			i4.val1.instrAddres = MVAtomC.getInstance().crtLoopEnd;
+		MVAtomC.getInstance().crtLoopEnd = oldLoopEnd;
 		return true;
 	}
 
 	private boolean consumeStmWhile() {
 		if (currentAtomType() != Iduri.WHILE)
 			return false;
+		Instr oldLoopEnd = MVAtomC.getInstance().crtLoopEnd;
+		MVAtomC.getInstance().crtLoopEnd = MVAtomC.getInstance().createInstr(Opcode.NOP);
+		Instr i1 = MVAtomC.getInstance().getLast();
 		nextAtom();
 
 		if (currentAtomType() != Iduri.LPAR) {
@@ -510,6 +600,7 @@ public class Sintactic {
 			gotoNextDelimitator();
 			return false;
 		}
+		Instr i2 = MVAtomC.getInstance().createCondJmp(rv);
 		nextAtom();
 
 		if (!consumeStm()) {
@@ -517,6 +608,10 @@ public class Sintactic {
 			gotoNextDelimitator();
 			return false;
 		}
+		// MVAtomC.getInstance().addInstrA(Opcode.JMP,i1.next);
+		MVAtomC.getInstance().appendInstr(MVAtomC.getInstance().crtLoopEnd);
+		i2.val1.instrAddres = MVAtomC.getInstance().crtLoopEnd;
+		MVAtomC.getInstance().crtLoopEnd = oldLoopEnd;
 		return true;
 	}
 
@@ -545,6 +640,9 @@ public class Sintactic {
 			gotoNextDelimitator();
 			return false;
 		}
+
+		Instr i1 = MVAtomC.getInstance().createCondJmp(rv);
+
 		nextAtom();
 
 		if (!consumeStm()) {
@@ -555,13 +653,19 @@ public class Sintactic {
 
 		if (currentAtomType() == Iduri.ELSE) {
 			nextAtom();
+			Instr i2 = MVAtomC.getInstance().addInstr(Opcode.JMP);
 			if (!consumeStm()) {
 				errorReporter.append(String.format(prefix, this.currentLine(), "Missing Stm if else stm "));
 				gotoNextDelimitator();
 				return false;
 			}
-		}
+			// i1.val1.instrAddres = MVAtomC.getInstance().i2.indexNextInstr;
+			// i1 = i2;
 
+		}
+		{
+			i1.val1.instrAddres = MVAtomC.getInstance().addInstr(Opcode.NOP);
+		}
 		return true;
 
 	}
@@ -1109,6 +1213,7 @@ public class Sintactic {
 
 		if (currentAtomType() == Iduri.CT_INT) {
 			rv.makePrimitiv(EnumType.TB_INT, currentAtom().intreg, -1);
+
 			nextAtom();
 			return true;
 		} else if (currentAtomType() == Iduri.CT_REAL) {
@@ -1232,10 +1337,14 @@ public class Sintactic {
 				alex.compile();
 				alex.hasErrors();
 				SymbolTable.getInstance().initExtFct("methods.h");
+				MVAtomC.getInstance();
 				sintactic = new Sintactic(alex.getAtoms());
 				sintactic.compile();
 				SymbolTable.getInstance().printSymbolTable();
+				MVAtomC.getInstance().displayInstructions();
+				MVAtomC.getInstance().run();
 				SymbolTable.getInstance().tearDown();
+				MVAtomC.getInstance().tearDown();
 
 			} catch (FileNotFoundException e) {
 				// TODO Auto-generated catch block
